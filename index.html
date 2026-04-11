@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>成語怪物 Idiom Monster</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="boot-debug" style="display: none; position: fixed; left: 8px; bottom: 8px; z-index: 9999; width: min(92vw, 720px); max-height: 40vh; overflow: auto; background: rgba(0, 0, 0, 0.85); color: #9ef7c7; border: 1px solid #446c58; border-radius: 8px; padding: 8px 10px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap;"></div>
+    <script>
+      (function () {
+        var isDebug = window.location.search.indexOf("debug=1") !== -1;
+        var box = document.getElementById("boot-debug");
+        var lines = [];
+        function log(line) {
+          if (!isDebug || !box) return;
+          lines.push(line);
+          box.style.display = "block";
+          box.textContent = lines.join("\n");
+        }
+        window.__bootLog = log;
+        log("[boot] debug mode on");
+        window.addEventListener(
+          "error",
+          function (event) {
+            if (!isDebug) return;
+            if (event && event.message) {
+              log("[error] " + event.message);
+            }
+            if (event && event.filename) {
+              log("[at] " + event.filename + ":" + event.lineno + ":" + event.colno);
+            }
+          },
+          true
+        );
+      })();
+    </script>
+    <main class="app-shell">
+      <img class="mascot mascot-left" src="./assets/monster-left.svg" alt="左側怪物" />
+      <img class="mascot mascot-right" src="./assets/monster-right.svg" alt="右側怪物" />
+
+      <section id="screen-home" class="screen screen-home active">
+        <div class="title-wrap">
+          <img class="game-emblem" src="./assets/emblem.svg" alt="成語怪物徽章" />
+          <h1>成語怪物</h1>
+          <p class="subtitle">PRESS START</p>
+        </div>
+
+        <div class="select-zone">
+          <div class="mode-select" role="radiogroup" aria-label="遊戲模式">
+            <button class="mode-btn" data-mode="single">單人挑戰</button>
+            <button class="mode-btn" data-mode="duel">雙人對戰</button>
+          </div>
+
+          <div class="level-select" role="radiogroup" aria-label="難度">
+            <button class="level-btn" data-level="basic">1 基礎</button>
+            <button class="level-btn" data-level="advanced">2 進階</button>
+            <button class="level-btn" data-level="master">3 高級</button>
+          </div>
+        </div>
+
+        <button id="start-btn" class="start-btn" disabled>開始對戰</button>
+
+        <div class="controls-hint">
+          <p>鍵盤：<kbd>S</kbd>/<kbd>D</kbd> 模式、<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 難度、<kbd>Enter</kbd> 開始</p>
+        </div>
+      </section>
+
+      <section id="screen-game" class="screen screen-game">
+        <header class="game-header">
+          <div class="player-chip player-strip player-strip-left" id="chip-p1">
+            <img class="player-avatar" src="./assets/monster-left.svg" alt="Player 1 怪物頭像" />
+            <div class="score-block">
+              <span class="chip-name">Player 1</span>
+              <span class="chip-score" id="score-p1">0 分</span>
+            </div>
+          </div>
+          <div class="round-info">
+            <span id="round-label">第 1 題（共 8 題）</span>
+          </div>
+          <div class="player-chip player-strip player-strip-right" id="chip-p2">
+            <div class="score-block score-block-right">
+              <span class="chip-name">Player 2</span>
+              <span class="chip-score" id="score-p2">0 分</span>
+            </div>
+            <img class="player-avatar" src="./assets/monster-right.svg" alt="Player 2 怪物頭像" />
+          </div>
+        </header>
+
+        <div class="question-wrap">
+          <p id="idiom-text" class="idiom-text">亡羊補牢</p>
+          <p id="question-hint" class="question-hint">這句話常形容什麼情況？</p>
+          <div id="idiom-image-wrap" class="idiom-image-wrap hidden" aria-hidden="true">
+            <img id="idiom-image" class="idiom-image" alt="" />
+          </div>
+
+          <div class="timer-wrap">
+            <div class="timer-track">
+              <div id="timer-bar" class="timer-bar"></div>
+            </div>
+            <span id="time-value" class="time-value">10</span>
+          </div>
+        </div>
+
+        <div id="sync-banner" class="sync-banner">Perfect Sync!</div>
+
+        <div id="options-zone" class="options-zone"></div>
+      </section>
+
+      <section id="screen-result" class="screen screen-result">
+        <h2 id="result-title">本局完成！</h2>
+        <p id="result-subtitle" class="result-subtitle"></p>
+
+        <div id="result-board" class="result-board">
+          <div class="result-item" id="result-item-p1">
+            <span id="result-label-score-p1">Player 1 分數</span>
+            <strong id="result-score-p1">0</strong>
+          </div>
+          <div class="result-item" id="result-item-p2">
+            <span id="result-label-score-p2">Player 2 分數</span>
+            <strong id="result-score-p2">0</strong>
+          </div>
+          <div class="result-item" id="result-correct-item-p1">
+            <span id="result-label-correct-p1">Player 1 答對</span>
+            <strong id="result-correct-p1">0</strong>
+          </div>
+          <div class="result-item" id="result-correct-item-p2">
+            <span id="result-label-correct-p2">Player 2 答對</span>
+            <strong id="result-correct-p2">0</strong>
+          </div>
+        </div>
+
+        <div class="result-actions">
+          <button id="btn-review">錯題回顧</button>
+          <button id="btn-replay">再玩一次</button>
+          <button id="btn-home">回首頁</button>
+        </div>
+      </section>
+
+      <section id="screen-review" class="screen screen-review">
+        <h2>錯題回顧</h2>
+        <div id="mistake-ranking" class="mistake-ranking"></div>
+        <div id="review-list" class="review-list"></div>
+        <div class="result-actions">
+          <button id="btn-review-replay">再玩一次</button>
+          <button id="btn-review-home">回首頁</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="./idiom-bank.js" onload="window.__bootLog && window.__bootLog('[load] idiom-bank.js ok')" onerror="window.__bootLog && window.__bootLog('[load] idiom-bank.js failed')"></script>
+    <script src="./game-config.js" onload="window.__bootLog && window.__bootLog('[load] game-config.js ok')" onerror="window.__bootLog && window.__bootLog('[load] game-config.js failed')"></script>
+    <script src="./script.js" onload="window.__bootLog && window.__bootLog('[load] script.js ok')" onerror="window.__bootLog && window.__bootLog('[load] script.js failed')"></script>
+  </body>
+</html>
