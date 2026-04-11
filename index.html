@@ -94,6 +94,10 @@
           </div>
         </header>
 
+        <div class="game-toolbar">
+          <button id="btn-game-home" class="game-home-btn" type="button">回首頁</button>
+        </div>
+
         <div class="question-wrap">
           <p id="idiom-text" class="idiom-text">亡羊補牢</p>
           <p id="question-hint" class="question-hint">這句話常形容什麼情況？</p>
@@ -115,6 +119,7 @@
       </section>
 
       <section id="screen-result" class="screen screen-result">
+        <div id="result-celebration" class="result-celebration" aria-hidden="true"></div>
         <h2 id="result-title">本局完成！</h2>
         <p id="result-subtitle" class="result-subtitle"></p>
 
@@ -128,12 +133,12 @@
             <strong id="result-score-p2">0</strong>
           </div>
           <div class="result-item" id="result-correct-item-p1">
-            <span id="result-label-correct-p1">Player 1 答對</span>
-            <strong id="result-correct-p1">0</strong>
+            <span id="result-label-correct-p1">Player 1 答錯成語</span>
+            <div id="result-mistakes-p1" class="result-mistakes"></div>
           </div>
           <div class="result-item" id="result-correct-item-p2">
-            <span id="result-label-correct-p2">Player 2 答對</span>
-            <strong id="result-correct-p2">0</strong>
+            <span id="result-label-correct-p2">Player 2 答錯成語</span>
+            <div id="result-mistakes-p2" class="result-mistakes"></div>
           </div>
         </div>
 

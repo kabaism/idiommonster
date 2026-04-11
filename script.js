@@ -68,6 +68,7 @@ const dom = {
   optionsZone: document.querySelector("#options-zone"),
   chipP1: document.querySelector("#chip-p1"),
   chipP2: document.querySelector("#chip-p2"),
+  gameHeader: document.querySelector(".game-header"),
   scoreP1: document.querySelector("#score-p1"),
   scoreP2: document.querySelector("#score-p2"),
   syncBanner: document.querySelector("#sync-banner"),
@@ -86,16 +87,21 @@ const dom = {
   resultCorrectItemP1: document.querySelector("#result-correct-item-p1"),
   resultItemP2: document.querySelector("#result-item-p2"),
   resultCorrectItemP2: document.querySelector("#result-correct-item-p2"),
+  resultMistakesP1: document.querySelector("#result-mistakes-p1"),
+  resultMistakesP2: document.querySelector("#result-mistakes-p2"),
+  resultCelebration: document.querySelector("#result-celebration"),
   reviewList: document.querySelector("#review-list"),
   mistakeRanking: document.querySelector("#mistake-ranking"),
   btnReview: document.querySelector("#btn-review"),
   btnReplay: document.querySelector("#btn-replay"),
   btnHome: document.querySelector("#btn-home"),
+  btnGameHome: document.querySelector("#btn-game-home"),
   btnReviewReplay: document.querySelector("#btn-review-replay"),
   btnReviewHome: document.querySelector("#btn-review-home")
 };
 
 let audioContext = null;
+let speechTimeoutId = null;
 
 bootstrap();
 if (window.__bootLog) {
@@ -180,6 +186,10 @@ function bindResultEvents() {
     ensureAudio();
     goHome();
   });
+  dom.btnGameHome.addEventListener("click", () => {
+    ensureAudio();
+    goHome();
+  });
   dom.btnReviewReplay.addEventListener("click", () => {
     ensureAudio();
     startGame();
@@ -216,6 +226,7 @@ function renderHomeSelection() {
 
 function startGame() {
   stopTimer();
+  stopIdiomSpeech();
   state.questions = buildRoundQuestions(state.level, state.roundSize, state.mode);
   state.index = 0;
   state.players.p1 = createPlayerState();
@@ -224,7 +235,9 @@ function startGame() {
   state.resolving = false;
   updateScoreboard();
 
-  dom.chipP2.style.visibility = state.mode === "duel" ? "visible" : "hidden";
+  dom.chipP2.hidden = state.mode !== "duel";
+  dom.chipP2.setAttribute("aria-hidden", state.mode === "duel" ? "false" : "true");
+  dom.gameHeader.classList.toggle("single-mode", state.mode === "single");
   switchScreen("game");
   renderQuestion();
 }
@@ -394,6 +407,7 @@ function renderQuestion() {
   dom.idiomText.textContent = question.idiom;
   dom.questionHint.textContent = `提示：${question.hint}`;
   renderQuestionImage(question);
+  queueIdiomSpeech(question.idiom);
   dom.syncBanner.classList.remove("show");
   dom.syncBanner.textContent = "Perfect Sync!";
 
@@ -502,6 +516,38 @@ function stopTimer() {
   if (state.timerId) {
     window.clearInterval(state.timerId);
     state.timerId = null;
+  }
+}
+
+function queueIdiomSpeech(idiom) {
+  stopIdiomSpeech();
+  if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
+    return;
+  }
+  speechTimeoutId = window.setTimeout(() => {
+    const utterance = new window.SpeechSynthesisUtterance(idiom);
+    utterance.lang = "zh-TW";
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    const zhVoice = window.speechSynthesis
+      .getVoices()
+      .find((voice) => voice.lang && voice.lang.toLowerCase().startsWith("zh"));
+    if (zhVoice) {
+      utterance.voice = zhVoice;
+    }
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    speechTimeoutId = null;
+  }, 140);
+}
+
+function stopIdiomSpeech() {
+  if (speechTimeoutId) {
+    window.clearTimeout(speechTimeoutId);
+    speechTimeoutId = null;
+  }
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
   }
 }
 
@@ -684,11 +730,13 @@ function updateScoreboard() {
 }
 
 function showResult() {
+  stopIdiomSpeech();
   switchScreen("result");
 
   const p1 = state.players.p1;
   const p2 = state.players.p2;
 
+  clearCelebration();
   dom.resultBoard.classList.remove("single-mode");
   dom.resultItemP1.style.display = "block";
   dom.resultCorrectItemP1.style.display = "block";
@@ -696,31 +744,33 @@ function showResult() {
   dom.resultCorrectItemP2.style.display = "block";
   dom.resultLabelScoreP1.textContent = "Player 1 分數";
   dom.resultLabelScoreP2.textContent = "Player 2 分數";
-  dom.resultLabelCorrectP1.textContent = "Player 1 答對";
-  dom.resultLabelCorrectP2.textContent = "Player 2 答對";
+  dom.resultLabelCorrectP1.textContent = "Player 1 答錯成語";
+  dom.resultLabelCorrectP2.textContent = "Player 2 答錯成語";
 
   animateNumber(dom.resultScoreP1, p1.score);
-  animateNumber(dom.resultCorrectP1, p1.correct);
+  renderMistakeSummary(dom.resultMistakesP1, p1.mistakes);
 
   if (state.mode === "single") {
     dom.resultBoard.classList.add("single-mode");
     dom.resultTitle.textContent = "挑戰完成！";
-    dom.resultSubtitle.textContent = `難度：${LEVEL_LABEL[state.level]}，答對 ${p1.correct} / ${state.questions.length}`;
+    dom.resultSubtitle.textContent = `難度：${LEVEL_LABEL[state.level]}，錯 ${p1.mistakes.length} 題`;
     dom.resultLabelScoreP1.textContent = "本局得分";
     dom.resultItemP1.style.display = "block";
-    dom.resultCorrectItemP1.style.display = "none";
+    dom.resultCorrectItemP1.style.display = "block";
     dom.resultItemP2.style.display = "none";
     dom.resultCorrectItemP2.style.display = "none";
   } else {
     animateNumber(dom.resultScoreP2, p2.score);
-    animateNumber(dom.resultCorrectP2, p2.correct);
+    renderMistakeSummary(dom.resultMistakesP2, p2.mistakes);
 
     if (p1.score > p2.score) {
       dom.resultTitle.textContent = "Player 1 勝出！";
-      dom.resultSubtitle.textContent = "左側放光！";
+      dom.resultSubtitle.textContent = "本局由 Player 1 拿下勝利。";
+      launchCelebration("p1");
     } else if (p2.score > p1.score) {
       dom.resultTitle.textContent = "Player 2 勝出！";
-      dom.resultSubtitle.textContent = "右側閃耀！";
+      dom.resultSubtitle.textContent = "本局由 Player 2 拿下勝利。";
+      launchCelebration("p2");
     } else {
       dom.resultTitle.textContent = "平手！";
       dom.resultSubtitle.textContent = "兩位都很厲害，來一場加賽吧！";
@@ -729,6 +779,7 @@ function showResult() {
 }
 
 function showReview() {
+  stopIdiomSpeech();
   switchScreen("review");
   dom.reviewList.innerHTML = "";
   dom.mistakeRanking.innerHTML = "";
@@ -756,6 +807,7 @@ function showReview() {
     card.innerHTML = `
       <h4>${index + 1}. ${mistake.idiom}</h4>
       <p class="review-meta">提示：${mistake.hint}</p>
+      <p class="review-meta">${state.mode === "duel" ? `選擇玩家：${playerLabel}` : "作答玩家：你"}</p>
       <p class="review-meta">${state.mode === "duel" ? `${playerLabel} 的作答` : "你的作答"}：${
       mistake.selectedIndex === null ? "未作答" : mistake.options[mistake.selectedIndex]
     }</p>
@@ -774,6 +826,12 @@ function showReview() {
         option.classList.add("selected");
       }
       option.textContent = optionText;
+      if (state.mode === "duel" && optionIndex === mistake.selectedIndex) {
+        const badge = document.createElement("span");
+        badge.className = "review-option-badge";
+        badge.textContent = `${playerLabel} 選擇`;
+        option.appendChild(badge);
+      }
       optionsList.appendChild(option);
     });
     card.appendChild(optionsList);
@@ -805,6 +863,9 @@ function renderMistakeRanking(mistakes) {
 }
 
 function animateNumber(element, target) {
+  if (!element) {
+    return;
+  }
   const start = performance.now();
   const duration = 450;
   const from = 0;
@@ -820,8 +881,72 @@ function animateNumber(element, target) {
   requestAnimationFrame(frame);
 }
 
+function renderMistakeSummary(container, mistakes) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+
+  if (!mistakes || mistakes.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "result-mistake-empty";
+    empty.textContent = "本局零失誤";
+    container.appendChild(empty);
+    return;
+  }
+
+  mistakes.forEach((mistake) => {
+    const chip = document.createElement("span");
+    chip.className = "result-mistake-chip";
+    chip.textContent = mistake.idiom;
+    container.appendChild(chip);
+  });
+}
+
+function clearCelebration() {
+  if (!dom.resultCelebration) {
+    return;
+  }
+  dom.resultCelebration.innerHTML = "";
+  dom.resultCelebration.classList.remove("show", "winner-p1", "winner-p2");
+}
+
+function launchCelebration(winner) {
+  if (!dom.resultCelebration) {
+    return;
+  }
+  clearCelebration();
+  dom.resultCelebration.classList.add("show", winner === "p1" ? "winner-p1" : "winner-p2");
+
+  const bursts = [
+    { left: "18%", top: "18%", delay: "0s" },
+    { left: "50%", top: "10%", delay: "0.18s" },
+    { left: "82%", top: "18%", delay: "0.36s" }
+  ];
+
+  bursts.forEach((burstConfig, burstIndex) => {
+    const burst = document.createElement("div");
+    burst.className = "celebration-burst";
+    burst.style.left = burstConfig.left;
+    burst.style.top = burstConfig.top;
+    burst.style.animationDelay = burstConfig.delay;
+
+    for (let i = 0; i < 10; i += 1) {
+      const spark = document.createElement("span");
+      spark.className = "celebration-spark";
+      spark.style.setProperty("--spark-angle", `${i * 36}deg`);
+      spark.style.setProperty("--spark-delay", `${burstIndex * 0.18 + i * 0.03}s`);
+      burst.appendChild(spark);
+    }
+
+    dom.resultCelebration.appendChild(burst);
+  });
+}
+
 function goHome() {
   stopTimer();
+  stopIdiomSpeech();
+  clearCelebration();
   switchScreen("home");
   renderHomeSelection();
 }
