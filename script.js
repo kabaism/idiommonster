@@ -10,6 +10,7 @@ if (!IDIOM_DATA) {
 const DEFAULT_CONFIG = {
   roundSize: 8,
   countdownMs: 10000,
+  endlessLives: 3,
   features: {
     enableFunnyOption: true,
     showIdiomImage: false
@@ -19,9 +20,18 @@ const DEFAULT_CONFIG = {
 const APP_CONFIG = resolveGameConfig(window.GAME_CONFIG);
 
 const LEVEL_LABEL = {
-  basic: "基礎",
-  advanced: "進階",
-  master: "高級"
+  basic: "輕而易舉",
+  advanced: "登堂入室",
+  master: "捫參歷井"
+};
+
+const PROMPT_TYPE = {
+  idiomToMeaning: "idiom-to-meaning"
+};
+
+const STORAGE_KEYS = {
+  audioEnabled: "idiom-monster.audioEnabled",
+  endlessLeaderboard: "idiom-monster.endlessLeaderboard"
 };
 
 const SINGLE_KEYS = ["A", "S", "D", "F"];
@@ -32,10 +42,15 @@ const state = {
   screen: "home",
   mode: "single",
   level: "basic",
+  audioEnabled: loadAudioEnabledSetting(),
+  levelBank: [],
   questions: [],
   index: 0,
   roundSize: APP_CONFIG.roundSize,
   countdownMs: APP_CONFIG.countdownMs,
+  lives: DEFAULT_CONFIG.endlessLives,
+  endlessLeaderboard: loadEndlessLeaderboard(),
+  endlessRunSaved: false,
   deadline: 0,
   timerId: null,
   lastSecond: null,
@@ -57,7 +72,12 @@ const dom = {
   },
   modeButtons: Array.from(document.querySelectorAll(".mode-btn")),
   levelButtons: Array.from(document.querySelectorAll(".level-btn")),
+  levelSelect: document.querySelector("#level-select"),
+  audioToggleButtons: Array.from(document.querySelectorAll(".audio-toggle-btn")),
+  leaderboardPanel: document.querySelector("#leaderboard-panel"),
+  leaderboardList: document.querySelector("#leaderboard-list"),
   startBtn: document.querySelector("#start-btn"),
+  controlsHintText: document.querySelector("#controls-hint-text"),
   roundLabel: document.querySelector("#round-label"),
   idiomText: document.querySelector("#idiom-text"),
   questionHint: document.querySelector("#question-hint"),
@@ -114,6 +134,7 @@ function bootstrap() {
   bindResultEvents();
   document.addEventListener("keydown", onKeydown);
   renderHomeSelection();
+  renderLeaderboard();
   updateScoreboard();
   reportIdiomBankDiagnostics();
 }
@@ -167,6 +188,13 @@ function bindHomeEvents() {
     });
   });
 
+  dom.audioToggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      ensureAudio();
+      setAudioEnabled(button.dataset.audioEnabled === "true");
+    });
+  });
+
   dom.startBtn.addEventListener("click", () => {
     ensureAudio();
     startGame();
@@ -214,6 +242,14 @@ function setLevel(level) {
   renderHomeSelection();
 }
 
+function setAudioEnabled(enabled) {
+  state.audioEnabled = enabled;
+  saveSetting(STORAGE_KEYS.audioEnabled, enabled ? "true" : "false");
+  playSfx("select");
+  vibrate(8);
+  renderHomeSelection();
+}
+
 function renderHomeSelection() {
   dom.modeButtons.forEach((button) => {
     button.classList.toggle("selected", button.dataset.mode === state.mode);
@@ -221,67 +257,105 @@ function renderHomeSelection() {
   dom.levelButtons.forEach((button) => {
     button.classList.toggle("selected", button.dataset.level === state.level);
   });
-  dom.startBtn.disabled = !(state.mode && state.level);
+  dom.audioToggleButtons.forEach((button) => {
+    button.classList.toggle(
+      "selected",
+      String(state.audioEnabled) === button.dataset.audioEnabled
+    );
+  });
+  dom.levelSelect.classList.toggle("hidden", state.mode !== "duel");
+  dom.leaderboardPanel.classList.toggle("hidden", state.mode !== "leaderboard");
+  dom.startBtn.disabled = !(state.mode && (state.mode !== "duel" || state.level));
+  dom.startBtn.hidden = state.mode === "leaderboard";
+  dom.startBtn.textContent = state.mode === "duel" ? "開始對戰" : "開始闖關";
+  dom.controlsHintText.innerHTML =
+    state.mode === "duel"
+      ? '鍵盤：<kbd>S</kbd>/<kbd>D</kbd>/<kbd>L</kbd> 切模式、<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 難度、<kbd>Enter</kbd> 開始'
+      : '鍵盤：<kbd>S</kbd>/<kbd>D</kbd>/<kbd>L</kbd> 切模式、<kbd>Enter</kbd> 開始';
 }
 
 function startGame() {
+  if (state.mode === "leaderboard") {
+    return;
+  }
   stopTimer();
   stopIdiomSpeech();
-  state.questions = buildRoundQuestions(state.level, state.roundSize, state.mode);
+  state.levelBank = IDIOM_DATA[state.level];
+  state.questions = buildRoundQuestions(
+    state.levelBank,
+    state.roundSize,
+    state.mode,
+    isSingleMode()
+  );
   state.index = 0;
+  state.lives = DEFAULT_CONFIG.endlessLives;
   state.players.p1 = createPlayerState();
   state.players.p2 = createPlayerState();
+  state.endlessRunSaved = false;
   state.pendingResolve = false;
   state.resolving = false;
   updateScoreboard();
-
-  dom.chipP2.hidden = state.mode !== "duel";
-  dom.chipP2.setAttribute("aria-hidden", state.mode === "duel" ? "false" : "true");
-  dom.gameHeader.classList.toggle("single-mode", state.mode === "single");
+  syncGameHeaderMode();
   switchScreen("game");
   renderQuestion();
 }
 
-function buildRoundQuestions(level, count, mode) {
-  const levelBank = IDIOM_DATA[level];
+function buildRoundQuestions(levelBank, count, mode, endlessMode) {
   const shuffled = shuffle([...levelBank]);
   const selected = [];
 
-  while (selected.length < count) {
+  const targetCount = endlessMode ? 1 : count;
+  while (selected.length < targetCount) {
     selected.push(shuffled[selected.length % shuffled.length]);
   }
 
-  return selected.map((item) => {
-    const baseOptions = buildOptions(levelBank, item);
-    if (mode === "duel") {
-      const p1Options = shuffle([...baseOptions]);
-      const p2Options = shuffle([...baseOptions]);
-      return {
-        idiom: item.idiom,
-        meaning: item.meaning,
-        hint: item.hint,
-        image: item.image,
-        imageAlt: item.imageAlt,
-        optionsByPlayer: { p1: p1Options, p2: p2Options },
-        correctIndexByPlayer: {
-          p1: p1Options.findIndex((option) => option === item.meaning),
-          p2: p2Options.findIndex((option) => option === item.meaning)
-        }
-      };
-    }
+  return selected.map((item) => buildQuestion(levelBank, item, mode));
+}
+
+function buildQuestion(levelBank, item, mode) {
+  return buildIdiomToMeaningQuestion(levelBank, item, mode);
+}
+
+function buildIdiomToMeaningQuestion(levelBank, item, mode) {
+  const baseOptions = buildMeaningOptions(levelBank, item);
+  if (mode === "duel") {
+    const p1Options = shuffle([...baseOptions]);
+    const p2Options = shuffle([...baseOptions]);
     return {
       idiom: item.idiom,
       meaning: item.meaning,
       hint: item.hint,
       image: item.image,
       imageAlt: item.imageAlt,
-      options: baseOptions,
-      correctIndex: baseOptions.findIndex((option) => option === item.meaning)
+      promptType: PROMPT_TYPE.idiomToMeaning,
+      promptText: item.idiom,
+      speechText: item.idiom,
+      helperText: "請搶答正確意思",
+      optionsByPlayer: { p1: p1Options, p2: p2Options },
+      correctIndexByPlayer: {
+        p1: p1Options.findIndex((option) => option === item.meaning),
+        p2: p2Options.findIndex((option) => option === item.meaning)
+      },
+      correctValue: item.meaning
     };
-  });
+  }
+  return {
+    idiom: item.idiom,
+    meaning: item.meaning,
+    hint: item.hint,
+    image: item.image,
+    imageAlt: item.imageAlt,
+    promptType: PROMPT_TYPE.idiomToMeaning,
+    promptText: item.idiom,
+    speechText: item.idiom,
+    helperText: "請選出正確意思",
+    options: baseOptions,
+    correctIndex: baseOptions.findIndex((option) => option === item.meaning),
+    correctValue: item.meaning
+  };
 }
 
-function buildOptions(levelBank, item) {
+function buildMeaningOptions(levelBank, item) {
   const correctMeaning = item.meaning;
   const configuredWrong = Array.isArray(item.wrongMeanings)
     ? item.wrongMeanings.filter(
@@ -403,11 +477,11 @@ function renderQuestion() {
   state.pendingResolve = false;
   state.resolving = false;
 
-  dom.roundLabel.textContent = `第 ${state.index + 1} 題（共 ${state.questions.length} 題）`;
-  dom.idiomText.textContent = question.idiom;
-  dom.questionHint.textContent = `提示：${question.hint}`;
+  dom.roundLabel.textContent = getRoundLabelText();
+  dom.idiomText.textContent = question.promptText;
+  dom.questionHint.innerHTML = `<span class="question-helper">${question.helperText}</span><span class="question-tip">提示：${question.hint}</span>`;
   renderQuestionImage(question);
-  queueIdiomSpeech(question.idiom);
+  queueIdiomSpeech(question.speechText);
   dom.syncBanner.classList.remove("show");
   dom.syncBanner.textContent = "Perfect Sync!";
 
@@ -521,6 +595,12 @@ function stopTimer() {
 
 function queueIdiomSpeech(idiom) {
   stopIdiomSpeech();
+  if (!state.audioEnabled) {
+    return;
+  }
+  if (!idiom) {
+    return;
+  }
   if (!("speechSynthesis" in window) || typeof window.SpeechSynthesisUtterance !== "function") {
     return;
   }
@@ -652,6 +732,17 @@ function resolveQuestion() {
 
   window.setTimeout(() => {
     state.resolving = false;
+    if (isSingleMode()) {
+      if (state.lives <= 0) {
+        showResult();
+        return;
+      }
+      state.index += 1;
+      state.questions.push(buildQuestion(state.levelBank, getRandomItem(state.levelBank), state.mode));
+      renderQuestion();
+      return;
+    }
+
     if (state.index < state.questions.length - 1) {
       state.index += 1;
       renderQuestion();
@@ -676,13 +767,19 @@ function evaluatePlayer(playerId, question) {
     state.players[playerId].score += 1;
     state.players[playerId].correct += 1;
   } else {
+    if (playerId === "p1" && isSingleMode()) {
+      state.lives = Math.max(0, state.lives - 1);
+    }
     state.players[playerId].mistakes.push({
       player: playerId,
       idiom: question.idiom,
+      promptText: question.promptText,
+      helperText: question.helperText,
       hint: question.hint,
       options,
       selectedIndex: selection,
-      correctIndex
+      correctIndex,
+      promptType: question.promptType
     });
   }
 
@@ -729,6 +826,13 @@ function updateScoreboard() {
   dom.scoreP2.textContent = `${state.players.p2.score} 分`;
 }
 
+function syncGameHeaderMode() {
+  const singleMode = state.mode === "single";
+  dom.chipP2.hidden = singleMode;
+  dom.chipP2.setAttribute("aria-hidden", singleMode ? "true" : "false");
+  dom.gameHeader.classList.toggle("single-mode", singleMode);
+}
+
 function showResult() {
   stopIdiomSpeech();
   switchScreen("result");
@@ -752,13 +856,14 @@ function showResult() {
 
   if (state.mode === "single") {
     dom.resultBoard.classList.add("single-mode");
-    dom.resultTitle.textContent = "挑戰完成！";
-    dom.resultSubtitle.textContent = `難度：${LEVEL_LABEL[state.level]}，錯 ${p1.mistakes.length} 題`;
+    dom.resultTitle.textContent = "單人闖關結束！";
+    dom.resultSubtitle.textContent = `撐到第 ${state.index + 1} 題，用完 3 命`;
     dom.resultLabelScoreP1.textContent = "本局得分";
     dom.resultItemP1.style.display = "block";
     dom.resultCorrectItemP1.style.display = "block";
     dom.resultItemP2.style.display = "none";
     dom.resultCorrectItemP2.style.display = "none";
+    maybeRecordEndlessLeaderboard();
   } else {
     animateNumber(dom.resultScoreP2, p2.score);
     renderMistakeSummary(dom.resultMistakesP2, p2.mistakes);
@@ -806,6 +911,8 @@ function showReview() {
     const playerLabel = mistake.player === "p1" ? "Player 1" : "Player 2";
     card.innerHTML = `
       <h4>${index + 1}. ${mistake.idiom}</h4>
+      <p class="review-meta">題型：看成語選意思</p>
+      <p class="review-meta">題目：${mistake.promptText}</p>
       <p class="review-meta">提示：${mistake.hint}</p>
       <p class="review-meta">${state.mode === "duel" ? `選擇玩家：${playerLabel}` : "作答玩家：你"}</p>
       <p class="review-meta">${state.mode === "duel" ? `${playerLabel} 的作答` : "你的作答"}：${
@@ -951,6 +1058,139 @@ function goHome() {
   renderHomeSelection();
 }
 
+function getRoundLabelText() {
+  if (isSingleMode()) {
+    return `單人闖關 · 第 ${state.index + 1} 題 · 剩 ${state.lives} 命`;
+  }
+  return `第 ${state.index + 1} 題（共 ${state.questions.length} 題）`;
+}
+
+function isSingleMode() {
+  return state.mode === "single";
+}
+
+function getRandomItem(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function maybeRecordEndlessLeaderboard() {
+  if (!isSingleMode() || state.endlessRunSaved) {
+    return;
+  }
+  state.endlessRunSaved = true;
+  const entry = {
+    name: "",
+    score: state.players.p1.score,
+    rounds: state.index + 1,
+    date: new Date().toISOString()
+  };
+
+  const ranked = [...state.endlessLeaderboard, entry].sort(compareLeaderboardEntries).slice(0, 10);
+  const qualifies = ranked.includes(entry);
+  if (!qualifies) {
+    renderLeaderboard();
+    return;
+  }
+
+  const suggestedName = "玩家";
+  const input =
+    typeof window.prompt === "function"
+      ? window.prompt("恭喜進入無盡排行榜，請輸入暱稱：", suggestedName)
+      : suggestedName;
+  entry.name = sanitizePlayerName(input) || suggestedName;
+  state.endlessLeaderboard = [...state.endlessLeaderboard, entry]
+    .sort(compareLeaderboardEntries)
+    .slice(0, 10);
+  saveEndlessLeaderboard();
+  renderLeaderboard();
+}
+
+function renderLeaderboard() {
+  if (!dom.leaderboardList) {
+    return;
+  }
+  dom.leaderboardList.innerHTML = "";
+
+  if (!state.endlessLeaderboard.length) {
+    const empty = document.createElement("div");
+    empty.className = "leaderboard-empty";
+    empty.textContent = "還沒有無盡紀錄，來成為第一名吧。";
+    dom.leaderboardList.appendChild(empty);
+    return;
+  }
+
+  state.endlessLeaderboard.forEach((entry, index) => {
+    const row = document.createElement("div");
+    row.className = "leaderboard-entry";
+    row.innerHTML = `
+      <span class="leaderboard-rank">#${index + 1}</span>
+      <div>
+        <div class="leaderboard-name">${entry.name}</div>
+        <div class="leaderboard-meta">第 ${entry.rounds} 題出局 · ${formatLeaderboardDate(entry.date)}</div>
+      </div>
+      <span class="leaderboard-score">${entry.score}</span>
+    `;
+    dom.leaderboardList.appendChild(row);
+  });
+}
+
+function compareLeaderboardEntries(a, b) {
+  if (b.score !== a.score) {
+    return b.score - a.score;
+  }
+  if (b.rounds !== a.rounds) {
+    return b.rounds - a.rounds;
+  }
+  return String(b.date).localeCompare(String(a.date));
+}
+
+function sanitizePlayerName(input) {
+  return typeof input === "string" ? input.trim().slice(0, 16) : "";
+}
+
+function loadEndlessLeaderboard() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.endlessLeaderboard);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter(
+        (entry) =>
+          entry &&
+          typeof entry.name === "string" &&
+          typeof entry.score === "number" &&
+          typeof entry.rounds === "number" &&
+          typeof entry.date === "string"
+      )
+      .sort(compareLeaderboardEntries)
+      .slice(0, 10);
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveEndlessLeaderboard() {
+  saveSetting(STORAGE_KEYS.endlessLeaderboard, JSON.stringify(state.endlessLeaderboard));
+}
+
+function formatLeaderboardDate(dateText) {
+  const date = new Date(dateText);
+  if (Number.isNaN(date.getTime())) {
+    return "剛剛";
+  }
+  return new Intl.DateTimeFormat("zh-TW", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function switchScreen(nextScreen) {
   state.screen = nextScreen;
   document.body.dataset.screen = nextScreen;
@@ -973,7 +1213,15 @@ function onKeydown(event) {
       setMode("duel");
       return;
     }
+    if (key === "l") {
+      ensureAudio();
+      setMode("leaderboard");
+      return;
+    }
     if (["1", "2", "3"].includes(key)) {
+      if (state.mode !== "duel") {
+        return;
+      }
       ensureAudio();
       setLevel(key === "1" ? "basic" : key === "2" ? "advanced" : "master");
       return;
@@ -1019,6 +1267,29 @@ function onKeydown(event) {
   }
 }
 
+function loadAudioEnabledSetting() {
+  try {
+    const value = window.localStorage.getItem(STORAGE_KEYS.audioEnabled);
+    if (value !== null) {
+      return value !== "false";
+    }
+    const legacyVoiceValue = window.localStorage.getItem("idiom-monster.voiceEnabled");
+    return legacyVoiceValue !== "false";
+  } catch (error) {
+    return true;
+  }
+}
+
+function saveSetting(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    if (window.__bootLog) {
+      window.__bootLog(`[warn] unable to persist setting ${key}`);
+    }
+  }
+}
+
 function shuffle(list) {
   const arr = [...list];
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -1029,6 +1300,9 @@ function shuffle(list) {
 }
 
 function ensureAudio() {
+  if (!state.audioEnabled) {
+    return;
+  }
   if (!audioContext) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) {
@@ -1042,6 +1316,9 @@ function ensureAudio() {
 }
 
 function playSfx(type) {
+  if (!state.audioEnabled) {
+    return;
+  }
   if (!audioContext) {
     return;
   }

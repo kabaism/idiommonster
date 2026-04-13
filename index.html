@@ -55,21 +55,40 @@
 
         <div class="select-zone">
           <div class="mode-select" role="radiogroup" aria-label="遊戲模式">
-            <button class="mode-btn" data-mode="single">單人挑戰</button>
+            <button class="mode-btn" data-mode="single">單人闖關</button>
             <button class="mode-btn" data-mode="duel">雙人對戰</button>
+            <button class="mode-btn" data-mode="leaderboard">排行榜</button>
           </div>
 
-          <div class="level-select" role="radiogroup" aria-label="難度">
-            <button class="level-btn" data-level="basic">1 基礎</button>
-            <button class="level-btn" data-level="advanced">2 進階</button>
-            <button class="level-btn" data-level="master">3 高級</button>
+          <div id="level-select" class="level-select hidden" role="radiogroup" aria-label="難度">
+            <button class="level-btn" data-level="basic">輕而易舉</button>
+            <button class="level-btn" data-level="advanced">登堂入室</button>
+            <button class="level-btn" data-level="master">捫參歷井</button>
           </div>
+
+          <div class="setting-panel">
+            <div class="setting-row">
+              <span class="setting-label">音效</span>
+              <div class="toggle-select" role="radiogroup" aria-label="音效">
+                <button class="audio-toggle-btn" data-audio-enabled="true">開</button>
+                <button class="audio-toggle-btn" data-audio-enabled="false">關</button>
+              </div>
+            </div>
+          </div>
+
+          <section id="leaderboard-panel" class="leaderboard-panel hidden" aria-labelledby="leaderboard-title">
+            <div class="leaderboard-header">
+              <h3 id="leaderboard-title">無盡排行榜</h3>
+              <span class="leaderboard-subtitle">本機前 10 名</span>
+            </div>
+            <div id="leaderboard-list" class="leaderboard-list"></div>
+          </section>
         </div>
 
-        <button id="start-btn" class="start-btn" disabled>開始對戰</button>
+        <button id="start-btn" class="start-btn" disabled>開始闖關</button>
 
         <div class="controls-hint">
-          <p>鍵盤：<kbd>S</kbd>/<kbd>D</kbd> 模式、<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 難度、<kbd>Enter</kbd> 開始</p>
+          <p id="controls-hint-text">鍵盤：<kbd>S</kbd>/<kbd>D</kbd>/<kbd>L</kbd> 切模式、<kbd>Enter</kbd> 開始</p>
         </div>
       </section>
 
